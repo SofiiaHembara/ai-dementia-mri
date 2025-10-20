@@ -1,4 +1,3 @@
-# scripts/build_index.py
 from pathlib import Path
 import pandas as pd
 import random
@@ -9,7 +8,7 @@ files = []
 for ext in ("*.jpg", "*.jpeg", "*.png"):
     files += list(ROOT.rglob(ext))
 if not files:
-    raise SystemExit("❌ У 2D наборі не знайдено jpg/png. Перевірити шлях.")
+    raise SystemExit("У 2D наборі не знайдено jpg/png. Перевірити шлях.")
 
 def map_label_from_path(p: Path):
     low = p.as_posix().lower()
@@ -17,7 +16,6 @@ def map_label_from_path(p: Path):
     if "verymilddemented" in low:   return "very_mild"
     if "milddemented" in low:       return "mild"
     if "moderatedemented" in low:   return "moderate"
-    # fallback: двокласна схема
     if "dement" in low or "alzheimer" in low: return "dementia"
     return "non_demented"
 
@@ -42,5 +40,5 @@ df["split"] = splits
 
 Path("data").mkdir(parents=True, exist_ok=True)
 df.to_csv("data/index.csv", index=False)
-print("✅ Збережено data/index.csv")
+print("Збережено data/index.csv")
 print(df["label"].value_counts()); print(df["split"].value_counts())
