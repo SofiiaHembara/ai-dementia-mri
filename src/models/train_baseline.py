@@ -35,21 +35,47 @@ def compute_metrics(y_true, y_prob, thr=0.5):
 
 
 def build_model(model_name="resnet18", num_classes=1):
-    import torchvision
+    """
+    Підтримує:
+    - torchvision: resnet18, efficientnet_b0, resnet50
+    - timm: будь-які моделі за іменем (напр. 'resnet50', 'convnext_tiny',
+            'vit_small_patch14_dinov2', 'vit_small_patch14_reg4_dinov2', тощо)
+    """
+    # Спершу спроба через torchvision для класики
+    if model_name in ["resnet18", "efficientnet_b0", "resnet50"]:
+        import torchvision
+        if model_name == "efficientnet_b0":
+            from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights
+            m = efficientnet_b0(weights=EfficientNet_B0_Weights.IMAGENET1K_V1)
+            in_features = m.classifier[1].in_features
+            m.classifier[1] = nn.Linear(in_features, num_classes)
+            return m
+        elif model_name == "resnet18":
+            from torchvision.models import resnet18, ResNet18_Weights
+            m = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
+            m.fc = nn.Linear(m.fc.in_features, num_classes)
+            return m
+        elif model_name == "resnet50":
+            from torchvision.models import resnet50, ResNet50_Weights
+            m = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1)
+            m.fc = nn.Linear(m.fc.in_features, num_classes)
+            return m
 
-    if model_name == "efficientnet_b0":
-        from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights
-
-        m = efficientnet_b0(weights=EfficientNet_B0_Weights.IMAGENET1K_V1)
-        in_features = m.classifier[1].in_features
-        m.classifier[1] = nn.Linear(in_features, num_classes)
-        return m
-    else:
-        from torchvision.models import resnet18, ResNet18_Weights
-
-        m = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
-        m.fc = nn.Linear(m.fc.in_features, num_classes)
-        return m
+    # Якщо назва не в torchvision-списку — пробуємо timm
+    import timm
+    m = timm.create_model(model_name, pretrained=True, num_classes=num_classes)
+    # На випадок, якщо класифікатор не замінився:
+    try:
+        # деякі timm-моделі мають метод reset_classifier
+        m.reset_classifier(num_classes=num_classes)
+    except Exception:
+        # fallback: спробуємо знайти head вручну
+        if hasattr(m, "classifier") and hasattr(m.classifier, "in_features"):
+            m.classifier = nn.Linear(m.classifier.in_features, num_classes)
+        elif hasattr(m, "head") and hasattr(m.head, "in_features"):
+            m.head = nn.Linear(m.head.in_features, num_classes)
+        # якщо інтерфейс інакший — timm вже виставив num_classes
+    return m
 
 
 def freeze_backbone(model: nn.Module, freeze: bool = True):
@@ -216,7 +242,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # Experiment
-    parser.add_argument("--model", type=str, default="resnet18", choices=["resnet18", "efficientnet_b0"])
+    parser.add_argument("--model", type=str, default="resnet18",    
+                    help="Назва моделі torchvision або timm (напр. resnet50, convnext_tiny, vit_small_patch14_dinov2)")
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch", type=int, default=32)
     parser.add_argument("--size", type=int, default=224)
