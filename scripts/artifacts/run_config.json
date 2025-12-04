@@ -1,0 +1,24 @@
+{
+  "raw_root": "/Users/sofiiahembara/Documents/ai-dementia-mri/ai-dementia-mri/data/raw",
+  "clinical_csv": "/Users/sofiiahembara/Documents/ai-dementia-mri/ai-dementia-mri/data/raw/mri_alz/oasis_cross-sectional.csv",
+  "nifti_dir": "/Users/sofiiahembara/Documents/ai-dementia-mri/ai-dementia-mri/data/processed/oasis1_nifti",
+  "index_subjects": "/Users/sofiiahembara/Documents/ai-dementia-mri/ai-dementia-mri/data/index_oasis1.csv",
+  "slices_dir": "/Users/sofiiahembara/Documents/ai-dementia-mri/ai-dementia-mri/data/interim/oasis1_2d",
+  "index_slices": "/Users/sofiiahembara/Documents/ai-dementia-mri/ai-dementia-mri/data/index_oasis1_2d.csv",
+  "seed": 42,
+  "img_size": 224,
+  "k_slices": 12,
+  "splits": {
+    "val_fraction": 0.15,
+    "test_fraction": 0.15
+  },
+  "model": "vit_tiny",
+  "epochs": 25,
+  "batch_size": 32,
+  "lr": 5e-05,
+  "weight_decay": 0.01,
+  "freeze_epochs": 2,
+  "patience": 6,
+  "amp": true,
+  "best_weights": "checkpoints/best_vit.pt"
+}

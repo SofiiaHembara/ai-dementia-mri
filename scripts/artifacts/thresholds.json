@@ -1,0 +1,4 @@
+{
+  "metric": "f1_patient",
+  "thr": 0.7
+}
