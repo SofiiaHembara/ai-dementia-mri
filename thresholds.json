@@ -1,4 +1,4 @@
 {
   "metric": "slice_auc",
-  "thr": 0.85
+  "thr": 0.75
 }
