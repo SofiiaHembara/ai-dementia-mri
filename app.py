@@ -1,275 +1,343 @@
 # app.py
-# Streamlit demo: Binary dementia screening on a 2D MRI dataset (simplified, no pagination)
-# - Browse samples by class subfolder (NonDemented / VeryMildDemented / MildDemented / ModerateDemented)
-# - Upload your own JPG/PNG slice
-# - Shows prediction p(dementia) and Grad-CAM heatmap
-# NOTE: Educational prototype only — NOT for clinical use.
+# Streamlit demo: patient-level dementia screening on OASIS 2D slices (DINO ViT)
+# - Only patient-centric view (no file names in UI)
+# - Uses index_oasis1_2d.csv (slice_path, subject_id, label, split)
+# - Aggregates slice predictions -> patient prediction (mean or top-k)
+# - Shows all slices for selected patient
+# NOTE: Research/education demo only — NOT for clinical use.
 
 from __future__ import annotations
 from pathlib import Path
+from typing import Dict, List, Tuple
+
 import random
-from typing import List, Tuple
 
 import numpy as np
+import pandas as pd
+from PIL import Image
 import cv2
+
 import torch
 import torch.nn as nn
 import streamlit as st
-from PIL import Image
+import timm
 
 # ------------------------------
 # Config
 # ------------------------------
-CHECKPOINT = "checkpoints/best.pt"  # trained with train_baseline.py (ResNet-18)
-DATASET_ROOT = Path("data/raw/2d_mri/Alzheimer_MRI_4_classes_dataset")
+INDEX_CSV = Path("data/index_oasis1_2d.csv")
+CHECKPOINT = Path("best_2d_dino.pt")  # твій чекпойнт з train_2d_dino
 IMG_SIZE = 224
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 
 LABEL_MAP = {"non_demented": 0, "dementia": 1}
 INV_LABEL = {v: k for k, v in LABEL_MAP.items()}
 
-CLASS_ALIASES = {
-    "nondemented": "NonDemented",
-    "non_demented": "NonDemented",
-    "verymilddemented": "VeryMildDemented",
-    "very_mild_demented": "VeryMildDemented",
-    "milddemented": "MildDemented",
-    "moderatedemented": "ModerateDemented",
-}
-CANONICAL_CLASSES = ["NonDemented", "VeryMildDemented", "MildDemented", "ModerateDemented"]
+# ------------------------------
+# Model: DINO ViT + 1-logit голова
+# (максимально проста та близька до того, як ти тренувала)
+# ------------------------------
+class DinoClassifier(nn.Module):
+    def __init__(self, backbone_name: str = "vit_base_patch16_224.dino"):
+        super().__init__()
+        # Використовуємо in_chans=3 (як у тренуванні),
+        # num_classes=0 -> отримаємо фічі, а не класи
+        self.backbone = timm.create_model(
+            backbone_name,
+            pretrained=False,
+            in_chans=3,
+            num_classes=0,     # фічі
+            global_pool="avg",  # середнє по патчах
+        )
+        in_features = self.backbone.num_features
+        self.head = nn.Linear(in_features, 1)
 
-# ------------------------------
-# Model (must match train_baseline.py)
-# ------------------------------
-def build_resnet18(num_classes: int = 1) -> nn.Module:
-    import torchvision
-    from torchvision.models import resnet18
-    try:
-        weights = torchvision.models.ResNet18_Weights.IMAGENET1K_V1
-        model = resnet18(weights=weights)
-    except Exception:
-        model = resnet18(pretrained=True)
-    model.fc = nn.Linear(model.fc.in_features, num_classes)  # single logit for BCEWithLogits
-    return model
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Очікуємо (B, 1, H, W) або (B, 3, H, W)
+        if x.shape[1] == 1:
+            x = x.repeat(1, 3, 1, 1)
+        feats = self.backbone(x)           # (B, F)
+        logit = self.head(feats).squeeze(1)  # (B,)
+        return logit
+
 
 @st.cache_resource
 def load_model() -> nn.Module:
-    ckpt = Path(CHECKPOINT)
-    if not ckpt.exists():
-        st.error(f"Checkpoint not found: {CHECKPOINT}. Train the model first.")
+    if not CHECKPOINT.exists():
+        st.error(f"Checkpoint not found: {CHECKPOINT}. Make sure best_2d_dino.pt is in the project root.")
         st.stop()
-    model = build_resnet18(num_classes=1).to(DEVICE)
-    state = torch.load(ckpt, map_location=DEVICE)
-    model.load_state_dict(state)
+
+    model = DinoClassifier(backbone_name="vit_base_patch16_224.dino").to(DEVICE)
+
+    state = torch.load(CHECKPOINT, map_location="cpu")
+
+    # Спробуємо завантажити максимально «мʼяко»
+    new_state = {}
+    for k, v in state.items():
+        # Якщо чекпойнт зберігався як plain state_dict з тими ж іменами
+        if k.startswith("backbone.") or k.startswith("head."):
+            new_state[k] = v
+
+    incompatible = model.load_state_dict(new_state, strict=False)
+    # Просто інформативне повідомлення в консолі, UI не чіпаємо
+    print("Loaded checkpoint, missing:", incompatible.missing_keys, "unexpected:", incompatible.unexpected_keys)
+
     model.eval()
     return model
 
+
 # ------------------------------
-# Preprocess
+# Preprocess (той же самий пайплайн, що й у тренуванні)
 # ------------------------------
 def preprocess_pil(pil_img: Image.Image) -> torch.Tensor:
-    """grayscale -> resize(224) -> z-score -> stack to 3ch -> tensor (1,3,H,W)"""
+    """Grayscale -> resize -> z-score -> stack to 3ch -> (1,3,H,W)."""
     img = np.array(pil_img.convert("L"))  # (H, W)
     img = cv2.resize(img, (IMG_SIZE, IMG_SIZE), interpolation=cv2.INTER_LINEAR)
     img = img.astype(np.float32)
     m, s = img.mean(), img.std() + 1e-6
     img = (img - m) / s
     x = np.stack([img, img, img], axis=0)  # (3, H, W)
-    x = torch.from_numpy(x).unsqueeze(0).float().to(DEVICE)  # (1, 3, H, W)
+    x = torch.from_numpy(x).unsqueeze(0).float()  # (1,3,H,W)
     return x
 
-# ------------------------------
-# Grad-CAM (simple)
-# ------------------------------
-class GradCAM:
-    def __init__(self, model: nn.Module, target_layer_name: str = "layer4"):
-        self.model = model
-        self.gradients = None
-        self.activations = None
-        modules = dict([*model.named_modules()])
-        if target_layer_name not in modules:
-            raise KeyError(f"Layer {target_layer_name} not found in the model.")
-        self.target_layer = modules[target_layer_name]
-        self.target_layer.register_forward_hook(self._forward_hook)
-        self.target_layer.register_full_backward_hook(self._backward_hook)
 
-    def _forward_hook(self, module, inp, out):
-        self.activations = out.detach()
+@st.cache_data
+def load_index() -> pd.DataFrame:
+    if not INDEX_CSV.exists():
+        st.error(f"Index CSV not found: {INDEX_CSV}")
+        st.stop()
+    df = pd.read_csv(INDEX_CSV)
+    required = {"slice_path", "subject_id", "label", "split"}
+    missing = required - set(df.columns)
+    if missing:
+        st.error(f"Index is missing columns: {missing}. Found: {list(df.columns)}")
+        st.stop()
 
-    def _backward_hook(self, module, grad_input, grad_output):
-        self.gradients = grad_output[0].detach()
+    # Нормалізуємо шляхи до слайсів
+    df["slice_path"] = df["slice_path"].astype(str).apply(lambda p: str(Path(p)))
+    # Залишаємо лише існуючі файли
+    df = df[df["slice_path"].apply(lambda p: Path(p).exists())].reset_index(drop=True)
+    return df
 
-    def __call__(self, x: torch.Tensor):
-        logits = self.model(x).squeeze(1)  # (B,)
-        prob = torch.sigmoid(logits)
-        # Build graph for Grad-CAM — do NOT wrap in torch.no_grad()
-        self.model.zero_grad(set_to_none=True)
-        prob.backward(gradient=torch.ones_like(prob), retain_graph=False)
 
-        cams = []
-        for i in range(x.size(0)):
-            grads = self.gradients[i]      # (C, H, W)
-            acts = self.activations[i]     # (C, H, W)
-            weights = grads.mean(dim=(1, 2), keepdim=True)  # (C, 1, 1)
-            cam = (weights * acts).sum(dim=0).cpu().numpy()  # (H, W)
-            cam = np.maximum(cam, 0)
-            cam = (cam - cam.min()) / (cam.max() + 1e-8)
-            cams.append(cam)
-        return prob.detach().cpu().numpy(), cams
+@st.cache_data
+def build_patient_index(df: pd.DataFrame) -> Dict[str, Dict]:
+    """
+    Створюємо індекс:
+    {
+      subject_id: {
+         "label": 0/1,
+         "split": "train"/"val"/"test",
+         "slices": [ "path/to/img1.png", ... ]
+      },
+      ...
+    }
+    """
+    patients: Dict[str, Dict] = {}
+    for sid, grp in df.groupby("subject_id"):
+        labels = grp["label"].str.lower().tolist()
+        # очікуємо один label на пацієнта → беремо перший
+        lbl = labels[0]
+        label_int = LABEL_MAP[lbl]
+        split = grp["split"].iloc[0]
+        slices = grp["slice_path"].tolist()
+        patients[sid] = {
+            "label_str": lbl,
+            "label_int": label_int,
+            "split": split,
+            "slices": slices,
+        }
+    return patients
 
-def overlay_cam(pil_img: Image.Image, cam: np.ndarray, alpha: float = 0.35) -> Image.Image:
-    img = np.array(pil_img.convert("RGB"))
-    cam_resized = cv2.resize(cam, (img.shape[1], img.shape[0]))
-    heat = cv2.applyColorMap((cam_resized * 255).astype(np.uint8), cv2.COLORMAP_JET)
-    heat = cv2.cvtColor(heat, cv2.COLOR_BGR2RGB)
-    overlay = (alpha * heat + (1 - alpha) * img).astype(np.uint8)
-    return Image.fromarray(overlay)
-
-# ------------------------------
-# Dataset utilities
-# ------------------------------
-def canonicalize_class_name(name: str) -> str:
-    key = name.strip().lower().replace(" ", "").replace("-", "_")
-    return CLASS_ALIASES.get(key, name)
-
-def discover_class_folders(root: Path) -> List[Tuple[str, Path]]:
-    if not root.exists():
-        return []
-    subdirs = [p for p in root.iterdir() if p.is_dir()]
-    classes = []
-    for d in subdirs:
-        canon = canonicalize_class_name(d.name)
-        classes.append((canon, d))
-    classes_sorted = sorted(
-        classes,
-        key=lambda x: CANONICAL_CLASSES.index(x[0]) if x[0] in CANONICAL_CLASSES else 999,
-    )
-    return classes_sorted
-
-def list_images_in_dir(dir_path: Path, limit: int | None = None) -> List[Path]:
-    files: List[Path] = []
-    for ext in ("*.jpg", "*.jpeg", "*.png"):
-        files += list(dir_path.rglob(ext))
-    files = sorted(files)
-    if limit is not None:
-        files = files[:limit]
-    return files
 
 # ------------------------------
-# Streamlit UI (simplified, no pagination, no extra labels)
+# Інференс по пацієнту
 # ------------------------------
-st.set_page_config(page_title="Dementia MRI Demo", page_icon="🧠", layout="wide")
-st.title("🧠 Dementia Screening (Demo) — 2D MRI")
-st.caption("Educational prototype only — not for clinical use.")
+def predict_patient(
+    model: nn.Module,
+    patient: Dict,
+    agg: str = "mean",
+    topk: int = 8,
+) -> Tuple[float, List[float]]:
+    """
+    Повертаємо:
+      p_patient (float), slice_probs (list of floats, len = n_slices)
+    """
+    model.eval()
+    slices = patient["slices"]
+    probs: List[float] = []
 
-# single source of truth for the threshold via session_state
-if "threshold" not in st.session_state:
-    st.session_state.threshold = 0.5
+    with torch.no_grad():
+        batch_tensors: List[torch.Tensor] = []
+        for p in slices:
+            img = Image.open(p)
+            x = preprocess_pil(img)  # (1,3,H,W)
+            batch_tensors.append(x)
 
+        x_all = torch.cat(batch_tensors, dim=0).to(DEVICE)  # (N,3,H,W)
+        logits = model(x_all)  # (N,)
+        p = torch.sigmoid(logits).cpu().numpy().astype(float)
+        probs = p.tolist()
+
+    probs_arr = np.asarray(probs)
+    if agg == "mean":
+        p_patient = float(probs_arr.mean())
+    elif agg == "topk":
+        k = min(topk, len(probs_arr))
+        top_vals = np.sort(probs_arr)[-k:]
+        p_patient = float(top_vals.mean())
+    else:
+        p_patient = float(probs_arr.mean())
+
+    return p_patient, probs
+
+
+# ------------------------------
+# Streamlit UI
+# ------------------------------
+st.set_page_config(page_title="Dementia MRI — Patient Demo", page_icon="🧠", layout="wide")
+st.title("🧠 Dementia screening demo (OASIS, patient-level)")
+st.caption("Research/education prototype on OASIS 2D slices — NOT for clinical use.")
+
+df = load_index()
+patients_index = build_patient_index(df)
+model = load_model()
+
+# ----- Sidebar -----
 with st.sidebar:
-    mode = st.radio("Mode", ["Browse samples", "Upload image"], index=0)
-    st.session_state.threshold = st.slider(
+    st.header("Settings")
+
+    subset = st.selectbox(
+        "Subset",
+        options=["test", "val", "train", "all"],
+        index=0,
+        help="Which split of the dataset to browse.",
+    )
+
+    if subset == "all":
+        available_ids = list(patients_index.keys())
+    else:
+        available_ids = [sid for sid, info in patients_index.items() if info["split"] == subset]
+
+    available_ids = sorted(available_ids)
+
+    if not available_ids:
+        st.error(f"No patients found for subset={subset}")
+        st.stop()
+
+    random_btn = st.button("🎲 Random patient")
+
+    if random_btn:
+        chosen_id = random.choice(available_ids)
+    else:
+        chosen_id = st.selectbox("Patient ID", options=available_ids, index=0)
+
+    threshold = st.slider(
         "Decision threshold (p[dementia])",
         0.0, 1.0,
-        value=float(st.session_state.threshold),
+        value=0.5,
         step=0.01,
-        help="Lower → more sensitive; higher → more specific.",
+        help="Lower → more sensitive (more positives); higher → more specific (fewer false positives).",
     )
-    threshold = float(st.session_state.threshold)
-    if mode == "Browse samples":
-        max_items = st.number_input(
-            "Max items to list (for performance)",
-            min_value=50, max_value=5000, value=500, step=50
-        )
-        random_btn = st.button("🎲 Random from current selection")
 
-# Load model + Grad-CAM
-model = load_model()
-cam = GradCAM(model, target_layer_name="layer4")
+    agg = st.radio(
+        "Aggregation across slices",
+        options=["mean", "topk"],
+        index=0,
+        help="How to aggregate slice probabilities into a single patient-level score.",
+    )
 
-col_left, col_right = st.columns([1, 1])
+    topk = st.slider(
+        "k for top-k (if selected)",
+        min_value=1,
+        max_value=32,
+        value=8,
+        step=1,
+        help="Average over k most suspicious slices (highest p[dementia]).",
+    )
 
-# -------- Browse mode (no pagination) --------
-if mode == "Browse samples":
-    root = DATASET_ROOT
-    if not root.exists():
-        st.error(f"Dataset folder not found:\n{root}\nPlease download/unzip it first.")
-        st.stop()
+# ----- Main content -----
+patient = patients_index[chosen_id]
+p_patient, slice_probs = predict_patient(model, patient, agg=agg, topk=topk)
 
-    class_dirs = discover_class_folders(root)
-    if not class_dirs:
-        st.warning("No class subfolders found under the dataset root.")
-        st.stop()
+true_label_int = patient["label_int"]
+true_label_str = patient["label_str"]
+pred_label_int = 1 if p_patient >= threshold else 0
+pred_label_str = INV_LABEL[pred_label_int]
 
-    class_names = ["All classes"] + [c for c, _ in class_dirs]
-    chosen = st.selectbox("Class folder", class_names, index=0)
+col_info, col_slices = st.columns([1, 2])
 
-    # Gather files (silently limit by max_items for performance)
-    if chosen == "All classes":
-        paths: List[Path] = []
-        for _, cdir in class_dirs:
-            paths.extend(list_images_in_dir(cdir))
-    else:
-        cdir = dict(class_dirs)[chosen]
-        paths = list_images_in_dir(cdir)
-
-    if len(paths) == 0:
-        st.warning("No JPG/PNG images found for the selected class.")
-        st.stop()
-
-    if len(paths) > int(max_items):
-        paths = paths[: int(max_items)]
-
-    # Choose image (no extra labels shown)
-    if random_btn and paths:
-        sel_path = random.choice(paths)
-    else:
-        sel = st.selectbox("Choose an image", options=[str(p) for p in paths], index=0)
-        sel_path = Path(sel)
-
-    pil = Image.open(sel_path)
-    x = preprocess_pil(pil)
-    prob, cams = cam(x)
-    p1 = float(prob[0])
-    pred = 1 if p1 >= threshold else 0
+with col_info:
+    st.subheader(f"Patient: {chosen_id}")
+    st.markdown(f"**True label:** `{true_label_str}`")
+    st.markdown(f"**Split:** `{patient['split']}`")
 
     st.metric(
-        "Prediction",
-        f"{INV_LABEL[pred]}",
-        delta=f"p(dementia) = {p1:.3f}  |  thr={threshold:.2f}",
-        delta_color="inverse" if pred == 0 else "normal",
+        "Patient-level prediction",
+        f"{pred_label_str}",
+        delta=f"p(dementia) = {p_patient:.3f}  |  thr={threshold:.2f}",
     )
 
-    st.write("Grad-CAM attention:")
-    col_left.image(pil, caption="Original", use_container_width=True)
-    col_right.image(overlay_cam(pil, cams[0]), caption="Grad-CAM overlay", use_container_width=True)
+    if pred_label_int == true_label_int:
+        st.success("Prediction matches the true label (for this patient).")
+    else:
+        st.error("Prediction does **not** match the true label for this patient.")
 
-# -------- Upload mode --------
-else:
-    f = st.file_uploader("Upload a JPG/PNG axial MRI slice", type=["jpg", "jpeg", "png"])
-    if f is not None:
-        pil = Image.open(f).convert("L")
-        x = preprocess_pil(pil)
-        prob, cams = cam(x)
-        p1 = float(prob[0])
-        pred = 1 if p1 >= st.session_state.threshold else 0
+    # Невеликий опис
+    st.markdown(
+        """
+**How this works:**
 
-        st.metric(
-            "Prediction",
-            f"{INV_LABEL[pred]}",
-            delta=f"p(dementia) = {p1:.3f}  |  thr={st.session_state.threshold:.2f}",
-            delta_color="inverse" if pred == 0 else "normal",
+- For this patient we take **all available MRI slices** from the index.
+- The DINO ViT model predicts p(dementia) for **each slice**.
+- We aggregate them (mean or top-k) to get one **patient-level score**.
+- If `p(dementia) ≥ threshold`, we show `"dementia"`, otherwise `"non_demented"`.
+"""
+    )
+
+    # Табличка з кількома найпідозрілішими слайсами (без назв файлів)
+    probs_arr = np.asarray(slice_probs)
+    order = np.argsort(-probs_arr)
+    top_show = min(10, len(order))
+    df_top = pd.DataFrame(
+        {
+            "slice_index": list(range(len(slice_probs))),
+            "p(dementia)": slice_probs,
+        }
+    ).iloc[order[:top_show]]
+    st.markdown("**Most suspicious slices (by model):**")
+    st.dataframe(df_top.reset_index(drop=True), use_container_width=True)
+
+with col_slices:
+    st.subheader("All slices for this patient")
+
+    imgs: List[Image.Image] = []
+    for p in patient["slices"]:
+        try:
+            img = Image.open(p).convert("L")
+            img = img.resize((IMG_SIZE, IMG_SIZE))
+            imgs.append(img)
+        except Exception:
+            continue
+
+    if not imgs:
+        st.warning("No images could be loaded for this patient.")
+    else:
+        # Показуємо всі слайси в гріді (Streamlit сам розібʼє список по рядах)
+        st.image(imgs, caption=[f"slice {i}" for i in range(len(imgs))], use_container_width=True)
+
+        # Проста візуалізація розподілу p(dementia) по слайсам
+        st.markdown("**Slice-level probabilities (model view):**")
+        df_probs = pd.DataFrame(
+            {"slice_index": list(range(len(slice_probs))), "p(dementia)": slice_probs}
         )
+        st.line_chart(df_probs.set_index("slice_index"))
 
-        st.write("Grad-CAM attention:")
-        col_left.image(pil, caption="Uploaded (grayscale)", use_container_width=True)
-        col_right.image(overlay_cam(pil.convert("RGB"), cams[0]), caption="Grad-CAM overlay", use_container_width=True)
-
-# Footer
 st.markdown("---")
 st.markdown(
     """
-**Disclaimer:** Research/education demo on a 2D slice dataset (not patient-level).  
-Predictions are **not** medical advice.
+**Disclaimer:**  
+This is a research/education demo on a 2D slice dataset with a DINO ViT model.  
+Predictions are **not** medical advice and must not be used for clinical decisions.
 """
 )
