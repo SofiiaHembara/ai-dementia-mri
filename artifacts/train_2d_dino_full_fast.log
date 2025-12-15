@@ -1,0 +1,5 @@
+Device: mps
+Train counts -> neg=7035, pos=4620, pos_weight=1.522727251
+Epoch 01 | train_loss=0.7465 | val_loss=0.7047 | slice: AUC=0.807 F1=0.700 BA=0.714 | patient@thr=0.55: AUC=0.864 F1=0.769 BA=0.795
+  ↳ ✅ saved best: best_2d_dino.pt (score=0.807, thr=0.55)
+Epoch 02 | train_loss=0.6735 | val_loss=0.6626 | slice: AUC=0.804 F1=0.706 BA=0.736 | patient@thr=0.45: AUC=0.852 F1=0.769 BA=0.795

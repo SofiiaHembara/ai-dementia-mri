@@ -1,0 +1,31 @@
+Device: mps
+Train counts -> neg=7035, pos=4620, pos_weight=1.522727251
+Epoch 01 | train_loss=0.7687 | val_loss=0.7136 | slice: AUC=0.795 F1=0.698 BA=0.714 | patient@thr=0.55: AUC=0.867 F1=0.789 BA=0.818
+  ↳ ✅ saved best: best_2d_dino.pt (score=0.795, thr=0.55)
+Epoch 02 | train_loss=0.6891 | val_loss=0.6649 | slice: AUC=0.806 F1=0.708 BA=0.738 | patient@thr=0.45: AUC=0.852 F1=0.769 BA=0.795
+  ↳ ✅ saved best: best_2d_dino.pt (score=0.806, thr=0.45)
+Epoch 03 | train_loss=0.6687 | val_loss=0.6669 | slice: AUC=0.810 F1=0.717 BA=0.742 | patient@thr=0.50: AUC=0.852 F1=0.789 BA=0.818
+  ↳ ✅ saved best: best_2d_dino.pt (score=0.810, thr=0.50)
+Epoch 04 | train_loss=0.6538 | val_loss=0.6570 | slice: AUC=0.807 F1=0.709 BA=0.739 | patient@thr=0.45: AUC=0.845 F1=0.769 BA=0.795
+Epoch 05 | train_loss=0.6470 | val_loss=0.6548 | slice: AUC=0.804 F1=0.693 BA=0.730 | patient@thr=0.45: AUC=0.848 F1=0.757 BA=0.785
+Epoch 06 | train_loss=0.6397 | val_loss=0.6574 | slice: AUC=0.804 F1=0.711 BA=0.742 | patient@thr=0.45: AUC=0.848 F1=0.789 BA=0.818
+Epoch 07 | train_loss=0.6300 | val_loss=0.6557 | slice: AUC=0.805 F1=0.709 BA=0.741 | patient@thr=0.45: AUC=0.845 F1=0.789 BA=0.818
+Epoch 08 | train_loss=0.6224 | val_loss=0.6605 | slice: AUC=0.799 F1=0.697 BA=0.732 | patient@thr=0.55: AUC=0.848 F1=0.765 BA=0.797
+Epoch 09 | train_loss=0.6171 | val_loss=0.6913 | slice: AUC=0.801 F1=0.710 BA=0.731 | patient@thr=0.55: AUC=0.852 F1=0.789 BA=0.818
+Epoch 10 | train_loss=0.6188 | val_loss=0.6719 | slice: AUC=0.799 F1=0.708 BA=0.735 | patient@thr=0.60: AUC=0.848 F1=0.765 BA=0.797
+Epoch 11 | train_loss=0.6093 | val_loss=0.6736 | slice: AUC=0.799 F1=0.713 BA=0.739 | patient@thr=0.50: AUC=0.845 F1=0.789 BA=0.818
+Epoch 12 | train_loss=0.6084 | val_loss=0.6641 | slice: AUC=0.797 F1=0.700 BA=0.732 | patient@thr=0.45: AUC=0.845 F1=0.789 BA=0.818
+Epoch 13 | train_loss=0.6059 | val_loss=0.6656 | slice: AUC=0.793 F1=0.676 BA=0.718 | patient@thr=0.40: AUC=0.848 F1=0.789 BA=0.818
+Epoch 14 | train_loss=0.6034 | val_loss=0.6633 | slice: AUC=0.793 F1=0.682 BA=0.721 | patient@thr=0.40: AUC=0.845 F1=0.769 BA=0.795
+Epoch 15 | train_loss=0.6022 | val_loss=0.6589 | slice: AUC=0.796 F1=0.676 BA=0.717 | patient@thr=0.40: AUC=0.845 F1=0.789 BA=0.818
+Epoch 16 | train_loss=0.5974 | val_loss=0.6673 | slice: AUC=0.792 F1=0.676 BA=0.717 | patient@thr=0.40: AUC=0.845 F1=0.789 BA=0.818
+Epoch 17 | train_loss=0.6002 | val_loss=0.6651 | slice: AUC=0.794 F1=0.691 BA=0.726 | patient@thr=0.45: AUC=0.845 F1=0.789 BA=0.818
+Epoch 18 | train_loss=0.5968 | val_loss=0.6677 | slice: AUC=0.791 F1=0.671 BA=0.713 | patient@thr=0.40: AUC=0.845 F1=0.789 BA=0.818
+Epoch 19 | train_loss=0.5917 | val_loss=0.6868 | slice: AUC=0.793 F1=0.705 BA=0.731 | patient@thr=0.50: AUC=0.848 F1=0.789 BA=0.818
+Epoch 20 | train_loss=0.5884 | val_loss=0.6703 | slice: AUC=0.790 F1=0.666 BA=0.712 | patient@thr=0.40: AUC=0.845 F1=0.789 BA=0.818
+Epoch 21 | train_loss=0.5920 | val_loss=0.6667 | slice: AUC=0.792 F1=0.678 BA=0.718 | patient@thr=0.55: AUC=0.842 F1=0.788 BA=0.820
+Epoch 22 | train_loss=0.5869 | val_loss=0.6941 | slice: AUC=0.792 F1=0.701 BA=0.727 | patient@thr=0.50: AUC=0.842 F1=0.789 BA=0.818
+Epoch 23 | train_loss=0.5877 | val_loss=0.6681 | slice: AUC=0.793 F1=0.682 BA=0.720 | patient@thr=0.45: AUC=0.842 F1=0.789 BA=0.818
+⏹ Early stopping: no improvement for 20 epoch(s).
+TEST slice-level: {'roc_auc': 0.7551740534597677, 'f1': 0.6951765290900049, 'bal_acc': 0.7167532467532467}
+TEST patient-level @best_thr: {'roc_auc': 0.7848484848484849, 'f1': 0.7567567567567568, 'bal_acc': 0.7848484848484849}
