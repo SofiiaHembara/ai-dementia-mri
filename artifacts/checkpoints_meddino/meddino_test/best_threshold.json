@@ -1,0 +1,4 @@
+{
+  "threshold": 0.39999999999999997,
+  "metric": "patient_auc"
+}

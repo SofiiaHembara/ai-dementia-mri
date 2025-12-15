@@ -1,0 +1,35 @@
+{
+  "split": "val",
+  "threshold": 0.27999999999999997,
+  "slice_metrics": {
+    "roc_auc": 0.6459117647058823,
+    "f1": 0.6612903225806451,
+    "precision": 0.5030674846625767,
+    "recall": 0.9647058823529412,
+    "balanced_accuracy": 0.5773529411764706,
+    "threshold": 0.27999999999999997,
+    "true_negatives": 38,
+    "false_positives": 162,
+    "false_negatives": 6,
+    "true_positives": 164,
+    "specificity": 0.19,
+    "sensitivity": 0.9647058823529412
+  },
+  "patient_metrics": {
+    "roc_auc": 0.6638655462184875,
+    "f1": 0.6222222222222222,
+    "precision": 0.45161290322580644,
+    "recall": 1.0,
+    "balanced_accuracy": 0.5,
+    "threshold": 0.27999999999999997,
+    "true_negatives": 0,
+    "false_positives": 17,
+    "false_negatives": 0,
+    "true_positives": 14,
+    "specificity": 0.0,
+    "sensitivity": 1.0
+  },
+  "n_slices": 370,
+  "n_patients": 31,
+  "aggregation": "mean"
+}

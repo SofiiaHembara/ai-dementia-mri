@@ -1,0 +1,18 @@
+{
+  "test_loss": 0.7496117183140346,
+  "threshold": 0.39999999999999997,
+  "slice_metrics": {
+    "roc_auc": 0.7719764705882353,
+    "f1": 0.7723880597014925,
+    "precision": 0.7237762237762237,
+    "recall": 0.828,
+    "balanced_accuracy": 0.6816470588235294
+  },
+  "patient_metrics": {
+    "roc_auc": 0.9154411764705881,
+    "f1": 0.7804878048780488,
+    "precision": 0.64,
+    "recall": 1.0,
+    "balanced_accuracy": 0.7352941176470589
+  }
+}
